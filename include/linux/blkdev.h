@@ -40,6 +40,17 @@ struct pr_ops;
 #define BLKDEV_MIN_RQ	4
 #define BLKDEV_MAX_RQ	128	/* Default maximum */
 
+#if defined(CONFIG_MMC_BLOCK_IO_LOG)
+extern void mt_pidlog_map_sg(struct bio_vec *bvec, int rw);
+extern void mt_pidlog_submit_bio(struct bio *bio);
+extern void mt_pidlog_write_begin(struct page *p);
+
+#else
+#define mt_pidlog_map_sg(...)
+#define mt_pidlog_submit_bio(...)
+#define mt_pidlog_write_begin(...)
+#endif
+
 /*
  * Maximum number of blkcg policies allowed to be registered concurrently.
  * Defined here to simplify include dependency.
@@ -1145,7 +1156,8 @@ extern int blk_verify_command(unsigned char *cmd, fmode_t has_write_perm);
 enum blk_default_limits {
 	BLK_MAX_SEGMENTS	= 128,
 	BLK_SAFE_MAX_SECTORS	= 255,
-	BLK_DEF_MAX_SECTORS	= 2560,
+	/*BLK_DEF_MAX_SECTORS	= 2560, */
+	BLK_DEF_MAX_SECTORS	= 32768, /* MTK　PATCH */
 	BLK_MAX_SEGMENT_SIZE	= 65536,
 	BLK_SEG_BOUNDARY_MASK	= 0xFFFFFFFFUL,
 };

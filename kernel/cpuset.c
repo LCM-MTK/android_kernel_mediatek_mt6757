@@ -334,8 +334,13 @@ static struct file_system_type cpuset_fs_type = {
  */
 static void guarantee_online_cpus(struct cpuset *cs, struct cpumask *pmask)
 {
-	while (!cpumask_intersects(cs->effective_cpus, cpu_online_mask))
+	while (!cpumask_intersects(cs->effective_cpus, cpu_online_mask)) {
+		if (cs == &top_cpuset) {
+			cpumask_copy(pmask, cpu_online_mask);
+			return;
+		}
 		cs = parent_cs(cs);
+	}
 	cpumask_and(pmask, cs->effective_cpus, cpu_online_mask);
 }
 
@@ -2237,6 +2242,7 @@ retry:
 		goto retry;
 	}
 
+	get_online_cpus();
 	cpumask_and(&new_cpus, cs->cpus_allowed, parent_cs(cs)->effective_cpus);
 	nodes_and(new_mems, cs->mems_allowed, parent_cs(cs)->effective_mems);
 
@@ -2249,7 +2255,7 @@ retry:
 	else
 		hotplug_update_tasks_legacy(cs, &new_cpus, &new_mems,
 					    cpus_updated, mems_updated);
-
+	put_online_cpus();
 	mutex_unlock(&cpuset_mutex);
 }
 

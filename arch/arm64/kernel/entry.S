@@ -30,6 +30,8 @@
 #include <asm/thread_info.h>
 #include <asm/unistd.h>
 
+#define RESERVE_SIZE 256
+
 /*
  * Context tracking subsystem.  Used to instrument transitions
  * between user and kernel mode.
@@ -66,6 +68,9 @@
 #define BAD_ERROR	3
 
 	.macro	kernel_entry, el, regsize = 64
+	.if	\el == 1
+	sub	sp, sp, #RESERVE_SIZE
+	.endif
 	sub	sp, sp, #S_FRAME_SIZE
 	.if	\regsize == 32
 	mov	w0, w0				// zero upper 32 bits of x0
@@ -96,6 +101,9 @@
 	.endif
 	mrs	x22, elr_el1
 	mrs	x23, spsr_el1
+	.if	\el == 1
+	add	x21, x21, #RESERVE_SIZE
+	.endif
 	stp	lr, x21, [sp, #S_LR]
 	stp	x22, x23, [sp, #S_PC]
 
@@ -160,6 +168,9 @@ alternative_endif
 	ldp	x28, x29, [sp, #16 * 14]
 	ldr	lr, [sp, #S_LR]
 	add	sp, sp, #S_FRAME_SIZE		// restore sp
+	.if	\el == 1
+	add	sp, sp, #RESERVE_SIZE
+	.endif
 	eret					// return to kernel
 	.endm
 
@@ -284,6 +295,25 @@ ENDPROC(el1_error_invalid)
 	.align	6
 el1_sync:
 	kernel_entry 1
+	mov	x0, sp
+	and	x20, x0, #~(THREAD_SIZE - 1)	// top of stack
+	ldr	w4, [x20, #TI_CPU_EXCP]
+	add	w4, w4, #0x1
+	str	w4, [x20, #TI_CPU_EXCP]
+	cmp	w4, #0x1
+	b.ne	el1_sync_nest
+	str	x0, [x20, #TI_REGS_ON_EXCP]
+el1_sync_nest:
+	cmp	w4, #0x2
+	b.lt	el1_sync_nest_skip
+	b.gt	el1_sync_nest_stop
+	mrs	x1, esr_el1			// read the syndrome register
+	lsr	x24, x1, #ESR_ELx_EC_SHIFT	// exception class
+	cmp	x24, #ESR_ELx_EC_DABT_CUR	// data abort in EL1
+	b.eq	el1_sync_nest_skip
+el1_sync_nest_stop:
+	bl	aee_stop_nested_panic
+el1_sync_nest_skip:
 	mrs	x1, esr_el1			// read the syndrome register
 	lsr	x24, x1, #ESR_ELx_EC_SHIFT	// exception class
 	cmp	x24, #ESR_ELx_EC_DABT_CUR	// data abort in EL1
@@ -311,6 +341,11 @@ el1_da:
 1:
 	mov	x2, sp				// struct pt_regs
 	bl	do_mem_abort
+	mov	x5, sp
+	and	x20, x5, #~(THREAD_SIZE - 1)	// top of stack
+	ldr	w4, [x20, #TI_CPU_EXCP]
+	sub	w4, w4, #0x1
+	str	w4, [x20, #TI_CPU_EXCP]
 
 	// disable interrupts before pulling preserved data off the stack
 	disable_irq
@@ -329,7 +364,7 @@ el1_undef:
 	 */
 	enable_dbg
 	mov	x0, sp
-	b	do_undefinstr
+	bl	do_undefinstr
 el1_dbg:
 	/*
 	 * Debug exception handling
@@ -340,6 +375,12 @@ el1_dbg:
 	mrs	x0, far_el1
 	mov	x2, sp				// struct pt_regs
 	bl	do_debug_exception
+	mov	x5, sp
+	and	x20, x5, #~(THREAD_SIZE - 1)	// top of stack
+	ldr	w4, [x20, #TI_CPU_EXCP]
+	sub	w4, w4, #0x1
+	str	w4, [x20, #TI_CPU_EXCP]
+
 	kernel_exit 1
 el1_inv:
 	// TODO: add support for undefined instructions in kernel mode

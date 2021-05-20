@@ -38,6 +38,7 @@
 #include <asm/system_misc.h>
 #include <asm/pgtable.h>
 #include <asm/tlbflush.h>
+#include <mt-plat/mtk_hooks.h>
 
 static const char *fault_name(unsigned int esr);
 
@@ -166,6 +167,9 @@ static void __do_user_fault(struct task_struct *tsk, unsigned long addr,
 			    struct pt_regs *regs)
 {
 	struct siginfo si;
+
+	if (!mem_fault_debug_hook(regs))
+		return;
 
 	if (unhandled_signal(tsk, sig) && show_unhandled_signals_ratelimited()) {
 		pr_info("%s[%d]: unhandled %s (%d) at 0x%08lx, esr 0x%03x\n",
@@ -582,6 +586,20 @@ void __init hook_debug_fault_code(int nr,
 	debug_fault_info[nr].code	= code;
 	debug_fault_info[nr].name	= name;
 }
+
+#ifdef CONFIG_MEDIATEK_SOLUTION
+void __init hook_fault_code(int nr,
+			    int (*fn)(unsigned long, unsigned int, struct pt_regs *),
+			    int sig, int code, const char *name)
+{
+	BUG_ON(nr < 0 || nr >= ARRAY_SIZE(fault_info));
+
+	fault_info[nr].fn   = fn;
+	fault_info[nr].sig  = sig;
+	fault_info[nr].code = code;
+	fault_info[nr].name = name;
+}
+#endif
 
 asmlinkage int __exception do_debug_exception(unsigned long addr,
 					      unsigned int esr,
